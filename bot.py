@@ -1,6 +1,7 @@
 import os
 import io
 import logging
+import sys
 from PIL import Image, ImageEnhance
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -9,18 +10,45 @@ from dotenv import load_dotenv
 # Set up logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    stream=sys.stdout  # Ensure logs go to stdout
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
+# Load environment variables and get token with debug info
 load_dotenv()
 
-# Get token from environment variable
-TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-if not TOKEN:
-    logger.error("No TELEGRAM_BOT_TOKEN found in environment variables")
+def get_token():
+    """Get token with detailed logging."""
+    # Try different methods to get the token
+    token = None
+    
+    # Method 1: Direct environment variable
+    token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    if token:
+        logger.info("Token found in os.environ")
+        return token
+        
+    # Method 2: Through dotenv
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if token:
+        logger.info("Token found through dotenv")
+        return token
+    
+    # Debug information
+    logger.error("Token not found. Available environment variables:")
+    for key in os.environ:
+        logger.error(f"- {key}")
+    
     raise ValueError("No TELEGRAM_BOT_TOKEN found in environment variables")
+
+# Get token
+try:
+    TOKEN = get_token()
+    logger.info("Successfully loaded token")
+except Exception as e:
+    logger.error(f"Error loading token: {str(e)}")
+    raise
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -29,6 +57,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "Send me any image and I'll apply a purple-black filter to it.\n"
                         "You can adjust the intensity using the buttons that appear with the filtered image.")
         await update.message.reply_text(welcome_message)
+        logger.info("Start command handled successfully")
     except Exception as e:
         logger.error(f"Error in start command: {str(e)}")
         await update.message.reply_text("An error occurred. Please try again later.")
