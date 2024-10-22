@@ -4,5 +4,3 @@ buildCommand = "pip install -r requirements.txt"
 
 [deploy]
 startCommand = "python3 bot.py"
-restartPolicyType = "on-failure"
-restartPolicyMaxRetries = 10
