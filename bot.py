@@ -91,9 +91,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         logger.info("Start command received")
         welcome_message = (
-            "Welcome to the Purple Filter Bot! 🟣\n\n"
+            "Welcome to the Purple Filter Market Dominance Bot! 🟣\n\n"
             "Send me a JPEG or PNG image and I'll apply a purple-black filter to it.\n"
-            "You can adjust the intensity using the buttons that appear with the filtered image."
+            "You can adjust the intensity using the buttons that appear with the filtered image. \n"
+		"Website: https://dominance.market/ \n"
+		"https://x.com/MarketDomSol \n"
+		"https://t.me/market_dominance"
         )
         await update.message.reply_text(welcome_message)
         logger.info("Start command handled successfully")
