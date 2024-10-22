@@ -20,7 +20,88 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                       "You can adjust the intensity using the buttons that appear with the filtered image.")
     await update.message.reply_text(welcome_message)
 
-[... rest of your code remains the same until button_callback function ...]
+def apply_purple_black_tone(img, purple_intensity=1.0, black_intensity=1.0, contrast=1.0):
+    """Apply the purple-black filter to an image."""
+    img = img.convert('RGB')
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(contrast)
+    
+    def adjust_channel(pixel, purple_factor, black_factor):
+        purple_value = min(int(pixel * (1.0 + (purple_intensity * purple_factor))), 255)
+        black_threshold = 128
+        if pixel < black_threshold:
+            black_value = int(pixel * (1.0 - (black_intensity * black_factor)))
+        else:
+            black_value = pixel
+        return min(purple_value, black_value)
+    
+    r, g, b = img.split()
+    
+    r = r.point(lambda i: adjust_channel(i, 0.3, 0.2))
+    g = g.point(lambda i: adjust_channel(i, -0.3, 0.3))
+    b = b.point(lambda i: adjust_channel(i, 0.3, 0.3))
+    
+    return Image.merge('RGB', (r, g, b))
+
+async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process the received image and apply the filter."""
+    try:
+        # Get the photo file
+        photo = update.message.photo[-1]  # Get the largest available photo
+        photo_file = await context.bot.get_file(photo.file_id)
+        
+        # Download the image
+        image_bytes = await photo_file.download_as_bytearray()
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Resize if the image is too large (Telegram has size limits)
+        max_size = 1280
+        if max(image.size) > max_size:
+            ratio = max_size / max(image.size)
+            new_size = tuple(int(dim * ratio) for dim in image.size)
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Apply filter with default values
+        processed_image = apply_purple_black_tone(image)
+        
+        # Save the processed image to bytes
+        output = io.BytesIO()
+        processed_image.save(output, format='JPEG')
+        output.seek(0)
+        
+        # Create intensity adjustment buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("↑ Purple", callback_data="purple_up"),
+                InlineKeyboardButton("↓ Purple", callback_data="purple_down")
+            ],
+            [
+                InlineKeyboardButton("↑ Black", callback_data="black_up"),
+                InlineKeyboardButton("↓ Black", callback_data="black_down")
+            ],
+            [
+                InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
+                InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Store original image and current settings in context
+        context.user_data['original_image'] = image
+        context.user_data['settings'] = {
+            'purple': 1.0,
+            'black': 1.0,
+            'contrast': 1.0
+        }
+        
+        # Send the processed image with adjustment buttons
+        await update.message.reply_photo(
+            photo=output,
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"Sorry, there was an error processing your image: {str(e)}")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button presses for adjusting filter intensities."""
@@ -52,41 +133,45 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Update stored settings
     context.user_data['settings'] = settings
     
-    # Process image with new settings
-    if 'original_image' in context.user_data:
-        processed_image = apply_purple_black_tone(
-            context.user_data['original_image'],
-            settings['purple'],
-            settings['black'],
-            settings['contrast']
-        )
-        
-        # Save the processed image to bytes
-        output = io.BytesIO()
-        processed_image.save(output, format='JPEG')
-        output.seek(0)
-        
-        # Update the image with the same buttons
-        keyboard = [
-            [
-                InlineKeyboardButton("↑ Purple", callback_data="purple_up"),
-                InlineKeyboardButton("↓ Purple", callback_data="purple_down")
-            ],
-            [
-                InlineKeyboardButton("↑ Black", callback_data="black_up"),
-                InlineKeyboardButton("↓ Black", callback_data="black_down")
-            ],
-            [
-                InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
-                InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
+    try:
+        # Process image with new settings
+        if 'original_image' in context.user_data:
+            processed_image = apply_purple_black_tone(
+                context.user_data['original_image'],
+                settings['purple'],
+                settings['black'],
+                settings['contrast']
+            )
+            
+            # Save the processed image to bytes
+            output = io.BytesIO()
+            processed_image.save(output, format='JPEG')
+            output.seek(0)
+            
+            # Update the image with the same buttons
+            keyboard = [
+                [
+                    InlineKeyboardButton("↑ Purple", callback_data="purple_up"),
+                    InlineKeyboardButton("↓ Purple", callback_data="purple_down")
+                ],
+                [
+                    InlineKeyboardButton("↑ Black", callback_data="black_up"),
+                    InlineKeyboardButton("↓ Black", callback_data="black_down")
+                ],
+                [
+                    InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
+                    InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
+                ]
             ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.message.edit_media(
-            media=InputMediaPhoto(output),
-            reply_markup=reply_markup
-        )
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Send the updated image
+            await query.message.edit_media(
+                media=InputMediaPhoto(output),
+                reply_markup=reply_markup
+            )
+    except Exception as e:
+        await query.message.reply_text(f"Error updating image: {str(e)}")
 
 def main():
     """Start the bot."""
