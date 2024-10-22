@@ -3,9 +3,10 @@ import io
 import logging
 import sys
 import traceback
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageDraw, ImageFont
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+import telegram
 from dotenv import load_dotenv
 
 # Set up logging with more detailed format
@@ -52,13 +53,48 @@ except Exception as e:
     logger.error(f"Error loading token: {str(e)}")
     raise
 
+def add_watermark(image):
+    """Add a black bar with text at the bottom of the image."""
+    try:
+        # Create a new image with extra height for the black bar
+        bar_height = 40  # Height of the black bar
+        new_width = image.width
+        new_height = image.height + bar_height
+        
+        new_image = Image.new('RGB', (new_width, new_height), 'black')
+        new_image.paste(image, (0, 0))
+        
+        # Add text
+        draw = ImageDraw.Draw(new_image)
+        font = ImageFont.load_default()
+        text = "X:@MarketDomSol TG:market_dominance"
+        
+        # Get text size for centering
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        # Calculate position (centered in black bar)
+        x = (new_width - text_width) // 2
+        y = image.height + (bar_height - text_height) // 2
+        
+        # Draw text in white
+        draw.text((x, y), text, fill='white', font=font)
+        
+        return new_image
+    except Exception as e:
+        logger.error(f"Error adding watermark: {str(e)}")
+        return image  # Return original image if watermark fails
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     try:
         logger.info("Start command received")
-        welcome_message = ("Welcome to the Purple Filter Bot! 🟣\n\n"
-                        "Send me any image and I'll apply a purple-black filter to it.\n"
-                        "You can adjust the intensity using the buttons that appear with the filtered image.")
+        welcome_message = (
+            "Welcome to the Purple Filter Bot! 🟣\n\n"
+            "Send me a JPEG or PNG image and I'll apply a purple-black filter to it.\n"
+            "You can adjust the intensity using the buttons that appear with the filtered image."
+        )
         await update.message.reply_text(welcome_message)
         logger.info("Start command handled successfully")
     except Exception as e:
@@ -103,13 +139,28 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         logger.info("Starting image processing")
         
-        # Get the photo file
-        logger.info("Getting photo file")
-        photo = update.message.photo[-1]
-        logger.info(f"Photo size: {photo.width}x{photo.height}")
+        # Get the file information
+        if not update.message.photo and update.message.document:
+            # If it's sent as a file, check the mime type
+            file = update.message.document
+            if not file.mime_type in ["image/jpeg", "image/png"]:
+                await update.message.reply_text(
+                    "Sorry, I can only process JPEG or PNG images. Please send a valid image file."
+                )
+                return
+            photo_file = await context.bot.get_file(file.file_id)
+        elif update.message.photo:
+            # If it's sent as a photo, Telegram automatically converts it to JPEG
+            photo = update.message.photo[-1]  # Get the largest photo size
+            logger.info(f"Photo size: {photo.width}x{photo.height}")
+            photo_file = await context.bot.get_file(photo.file_id)
+        else:
+            await update.message.reply_text(
+                "Please send me a JPEG or PNG image to apply the purple filter."
+            )
+            return
         
         logger.info("Getting file from Telegram")
-        photo_file = await context.bot.get_file(photo.file_id)
         
         logger.info("Downloading image bytes")
         # Download the image
@@ -118,6 +169,15 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info("Opening image with PIL")
         image = Image.open(io.BytesIO(image_bytes))
+        
+        # Verify image format
+        if image.format not in ['JPEG', 'PNG']:
+            await update.message.reply_text(
+                "Sorry, I can only process JPEG or PNG images. "
+                "Please send an image in one of these formats."
+            )
+            return
+            
         logger.info(f"Original image size: {image.size}")
         
         # Resize if the image is too large
@@ -134,10 +194,14 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         processed_image = apply_purple_black_tone(image)
         logger.info("Filter applied successfully")
         
+        # Add watermark
+        logger.info("Adding watermark")
+        processed_image = add_watermark(processed_image)
+        
         # Save the processed image to bytes
         logger.info("Saving processed image")
         output = io.BytesIO()
-        processed_image.save(output, format='JPEG')
+        processed_image.save(output, format='JPEG')  # Always save as JPEG for consistency
         output.seek(0)
         logger.info("Image saved to bytes")
         
@@ -180,7 +244,8 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in process_image: {str(e)}")
         logger.exception("Full traceback:")
         await update.message.reply_text(
-            "Sorry, there was an error processing your image. Please try again with a different image or contact support if the problem persists."
+            "Sorry, there was an error processing your image. "
+            "Please make sure you're sending a valid JPEG or PNG image and try again."
         )
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -198,22 +263,37 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'contrast': 1.0
         })
         
+        # Store old settings to check if they changed
+        old_settings = settings.copy()
+        
         # Adjust settings based on button press
         adjustment = 0.5
         logger.info(f"Processing button: {query.data}")
         if query.data == "purple_up":
-            settings['purple'] = min(4.0, settings['purple'] + adjustment)
+            if settings['purple'] < 4.0:  # Only adjust if not at max
+                settings['purple'] = min(4.0, settings['purple'] + adjustment)
         elif query.data == "purple_down":
-            settings['purple'] = max(0.0, settings['purple'] - adjustment)
+            if settings['purple'] > 0.0:  # Only adjust if not at min
+                settings['purple'] = max(0.0, settings['purple'] - adjustment)
         elif query.data == "black_up":
-            settings['black'] = min(4.0, settings['black'] + adjustment)
+            if settings['black'] < 4.0:
+                settings['black'] = min(4.0, settings['black'] + adjustment)
         elif query.data == "black_down":
-            settings['black'] = max(0.0, settings['black'] - adjustment)
+            if settings['black'] > 0.0:
+                settings['black'] = max(0.0, settings['black'] - adjustment)
         elif query.data == "contrast_up":
-            settings['contrast'] = min(3.0, settings['contrast'] + adjustment)
+            if settings['contrast'] < 3.0:
+                settings['contrast'] = min(3.0, settings['contrast'] + adjustment)
         elif query.data == "contrast_down":
-            settings['contrast'] = max(0.0, settings['contrast'] - adjustment)
+            if settings['contrast'] > 0.0:
+                settings['contrast'] = max(0.0, settings['contrast'] - adjustment)
         
+        # Check if settings actually changed
+        if settings == old_settings:
+            logger.info("Settings unchanged, skipping update")
+            await query.answer("Maximum/minimum value reached!")
+            return
+            
         logger.info(f"New settings: {settings}")
         # Update stored settings
         context.user_data['settings'] = settings
@@ -225,43 +305,54 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         logger.info("Processing image with new settings")
         # Process image with new settings
-        processed_image = apply_purple_black_tone(
-            context.user_data['original_image'],
-            settings['purple'],
-            settings['black'],
-            settings['contrast']
-        )
-        
-        # Save the processed image to bytes
-        logger.info("Saving processed image")
-        output = io.BytesIO()
-        processed_image.save(output, format='JPEG')
-        output.seek(0)
-        
-        # Update the image with the same buttons
-        keyboard = [
-            [
-                InlineKeyboardButton("↑ Purple", callback_data="purple_up"),
-                InlineKeyboardButton("↓ Purple", callback_data="purple_down")
-            ],
-            [
-                InlineKeyboardButton("↑ Black", callback_data="black_up"),
-                InlineKeyboardButton("↓ Black", callback_data="black_down")
-            ],
-            [
-                InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
-                InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
+        try:
+            processed_image = apply_purple_black_tone(
+                context.user_data['original_image'],
+                settings['purple'],
+                settings['black'],
+                settings['contrast']
+            )
+            
+            # Add watermark
+            processed_image = add_watermark(processed_image)
+            
+            # Save the processed image to bytes
+            logger.info("Saving processed image")
+            output = io.BytesIO()
+            processed_image.save(output, format='JPEG')
+            output.seek(0)
+            
+            # Update the image with the same buttons
+            keyboard = [
+                [
+                    InlineKeyboardButton("↑ Purple", callback_data="purple_up"),
+                    InlineKeyboardButton("↓ Purple", callback_data="purple_down")
+                ],
+                [
+                    InlineKeyboardButton("↑ Black", callback_data="black_up"),
+                    InlineKeyboardButton("↓ Black", callback_data="black_down")
+                ],
+                [
+                    InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
+                    InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
+                ]
             ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        logger.info("Updating message with new image")
-        await query.message.edit_media(
-            media=InputMediaPhoto(output),
-            reply_markup=reply_markup
-        )
-        logger.info("Button callback completed successfully")
-        
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            logger.info("Updating message with new image")
+            await query.message.edit_media(
+                media=InputMediaPhoto(output),
+                reply_markup=reply_markup
+            )
+            logger.info("Button callback completed successfully")
+            
+        except telegram.error.BadRequest as e:
+            if "Message is not modified" in str(e):
+                logger.info("Image unchanged, ignoring update")
+                await query.answer("No change in image!")
+            else:
+                raise
+            
     except Exception as e:
         logger.error(f"Error in button_callback: {str(e)}")
         logger.exception("Full traceback:")
@@ -279,7 +370,7 @@ def main():
         # Add handlers
         logger.info("Adding handlers")
         application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.PHOTO, process_image))
+        application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, process_image))
         application.add_handler(CallbackQueryHandler(button_callback))
 
         # Start the Bot
