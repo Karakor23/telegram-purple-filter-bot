@@ -1,111 +1,139 @@
-import os
+import tkinter as tk
+from tkinter import ttk, filedialog
+from PIL import Image, ImageTk, ImageEnhance, ImageDraw, ImageFont
 import io
-import logging
-import sys
-import traceback
-from PIL import Image, ImageEnhance, ImageDraw, ImageFont
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-import telegram
-from dotenv import load_dotenv
+import os
 
-# Set up logging with more detailed format
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    stream=sys.stdout
-)
-logger = logging.getLogger(__name__)
-
-# Load environment variables
-load_dotenv()
-
-def get_token():
-    """Get token with detailed logging."""
-    # Try different methods to get the token
-    token = None
-    logger.info("Attempting to get token...")
-    
-    # Method 1: Direct environment variable
-    token = os.environ.get('TELEGRAM_BOT_TOKEN')
-    if token:
-        logger.info("Token found in os.environ")
-        return token
+class PurpleFilterApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Purple-Black Filter Application with Captions")
         
-    # Method 2: Through dotenv
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    if token:
-        logger.info("Token found through dotenv")
-        return token
-    
-    # Debug information
-    logger.error("Token not found. Available environment variables:")
-    for key in os.environ:
-        logger.error(f"- {key}")
-    
-    raise ValueError("No TELEGRAM_BOT_TOKEN found in environment variables")
-
-# Get token
-try:
-    TOKEN = get_token()
-    logger.info("Successfully loaded token")
-except Exception as e:
-    logger.error(f"Error loading token: {str(e)}")
-    raise
-
-def add_watermark(image):
-    """Add a black bar with text at the bottom of the image."""
-    try:
-        # Create a new image with extra height for the black bar
-        bar_height = 40  # Height of the black bar
-        new_width = image.width
-        new_height = image.height + bar_height
+        # Store the original image and processed image
+        self.original_image = None
+        self.current_processed_image = None
+        self.photo_image = None
         
-        new_image = Image.new('RGB', (new_width, new_height), 'black')
-        new_image.paste(image, (0, 0))
+        # Create main frame
+        self.main_frame = ttk.Frame(self.root, padding="10")
+        self.main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Add text
-        draw = ImageDraw.Draw(new_image)
-        font = ImageFont.load_default()
-        text = "X:@MarketDomSol TG:market_dominance"
+        # Create button to load image
+        self.load_button = ttk.Button(self.main_frame, text="Load Image", command=self.load_image)
+        self.load_button.grid(row=0, column=0, pady=5)
         
-        # Get text size for centering
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
+        # Create intensity sliders
+        self.purple_intensity_var = tk.DoubleVar(value=1.0)
+        self.black_intensity_var = tk.DoubleVar(value=1.0)
+        self.contrast_var = tk.DoubleVar(value=1.0)
         
-        # Calculate position (centered in black bar)
-        x = (new_width - text_width) // 2
-        y = image.height + (bar_height - text_height) // 2
-        
-        # Draw text in white
-        draw.text((x, y), text, fill='white', font=font)
-        
-        return new_image
-    except Exception as e:
-        logger.error(f"Error adding watermark: {str(e)}")
-        return image  # Return original image if watermark fails
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a message when the command /start is issued."""
-    try:
-        logger.info("Start command received")
-        welcome_message = (
-            "Welcome to the Purple Filter Bot! 🟣\n\n"
-            "Send me a JPEG or PNG image and I'll apply a purple-black filter to it.\n"
-            "You can adjust the intensity using the buttons that appear with the filtered image."
+        # Purple intensity controls
+        self.purple_label = ttk.Label(self.main_frame, text="Purple Intensity:")
+        self.purple_label.grid(row=1, column=0, pady=2)
+        self.purple_slider = ttk.Scale(
+            self.main_frame,
+            from_=0.0,
+            to=4.0,
+            orient=tk.HORIZONTAL,
+            variable=self.purple_intensity_var,
+            command=self.update_image
         )
-        await update.message.reply_text(welcome_message)
-        logger.info("Start command handled successfully")
-    except Exception as e:
-        logger.error(f"Error in start command: {str(e)}")
-        logger.exception("Full traceback:")
-        await update.message.reply_text("An error occurred. Please try again later.")
+        self.purple_slider.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=2)
+        
+        # Black intensity controls
+        self.black_label = ttk.Label(self.main_frame, text="Black Intensity:")
+        self.black_label.grid(row=3, column=0, pady=2)
+        self.black_slider = ttk.Scale(
+            self.main_frame,
+            from_=0.0,
+            to=4.0,
+            orient=tk.HORIZONTAL,
+            variable=self.black_intensity_var,
+            command=self.update_image
+        )
+        self.black_slider.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=2)
+        
+        # Contrast controls
+        self.contrast_label = ttk.Label(self.main_frame, text="Contrast:")
+        self.contrast_label.grid(row=5, column=0, pady=2)
+        self.contrast_slider = ttk.Scale(
+            self.main_frame,
+            from_=0.0,
+            to=3.0,
+            orient=tk.HORIZONTAL,
+            variable=self.contrast_var,
+            command=self.update_image
+        )
+        self.contrast_slider.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=2)
+        
+        # Caption controls
+        self.caption_frame = ttk.LabelFrame(self.main_frame, text="Caption Settings", padding="5")
+        self.caption_frame.grid(row=7, column=0, pady=5, sticky=(tk.W, tk.E))
+        
+        # Caption text entry
+        self.caption_var = tk.StringVar(value="Enter your caption")
+        self.caption_entry = ttk.Entry(self.caption_frame, textvariable=self.caption_var, width=40)
+        self.caption_entry.grid(row=0, column=0, columnspan=2, pady=5, sticky=(tk.W, tk.E))
+        
+        # Font size spinbox
+        self.font_size_var = tk.IntVar(value=150)  # Increased default size
+        self.font_size_label = ttk.Label(self.caption_frame, text="Font Size:")
+        self.font_size_label.grid(row=1, column=0, pady=2)
+        self.font_size_spinbox = ttk.Spinbox(
+            self.caption_frame,
+            from_=50,
+            to=500,
+            increment=10,
+            textvariable=self.font_size_var,
+            width=5,
+            command=self.update_image
+        )
+        self.font_size_spinbox.grid(row=1, column=1, sticky=(tk.W), pady=2, padx=5)
+        # Bind the spinbox to also update on keyboard input
+        self.font_size_spinbox.bind('<Return>', self.update_image)
+        self.font_size_spinbox.bind('<FocusOut>', self.update_image)
+        
+        # Outline thickness slider
+        self.outline_var = tk.IntVar(value=3)  # Increased default thickness
+        self.outline_label = ttk.Label(self.caption_frame, text="Outline Thickness:")
+        self.outline_label.grid(row=2, column=0, pady=2)
+        self.outline_slider = ttk.Scale(
+            self.caption_frame,
+            from_=1,
+            to=8,  # Increased maximum thickness
+            orient=tk.HORIZONTAL,
+            variable=self.outline_var,
+            command=self.update_image
+        )
+        self.outline_slider.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=2)
+        
+        # Create canvas for image display
+        self.canvas = tk.Canvas(self.main_frame, width=800, height=600)
+        self.canvas.grid(row=8, column=0, pady=5)
+        
+        # Add label to show when no image is loaded
+        self.canvas.create_text(
+            400, 300,
+            text="Please load an image",
+            font=('Arial', 14)
+        )
+        
+        # Bind caption entry to update
+        self.caption_var.trace_add('write', self.update_image_wrapper)
+        
+    def update_image_wrapper(self, *args):
+        self.update_image()
 
-def apply_purple_black_tone(img, purple_intensity=1.0, black_intensity=1.0, contrast=1.0):
-    """Apply the purple-black filter to an image."""
-    try:
-        logger.info(f"Applying filter with settings - purple: {purple_intensity}, black: {black_intensity}, contrast: {contrast}")
+    def load_image(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.tiff")]
+        )
+        if file_path:
+            self.original_image = Image.open(file_path)
+            self.original_image.thumbnail((800, 600), Image.Resampling.LANCZOS)
+            self.update_image()
+
+    def apply_purple_black_tone(self, img, purple_intensity=1.0, black_intensity=1.0, contrast=1.0):
         img = img.convert('RGB')
         enhancer = ImageEnhance.Contrast(img)
         img = enhancer.enhance(contrast)
@@ -119,268 +147,87 @@ def apply_purple_black_tone(img, purple_intensity=1.0, black_intensity=1.0, cont
                 black_value = pixel
             return min(purple_value, black_value)
         
-        logger.info("Splitting channels")
         r, g, b = img.split()
         
-        logger.info("Processing channels")
         r = r.point(lambda i: adjust_channel(i, 0.3, 0.2))
         g = g.point(lambda i: adjust_channel(i, -0.3, 0.3))
         b = b.point(lambda i: adjust_channel(i, 0.3, 0.3))
         
-        logger.info("Merging channels")
         return Image.merge('RGB', (r, g, b))
-    except Exception as e:
-        logger.error(f"Error in apply_purple_black_tone: {str(e)}")
-        logger.exception("Full traceback:")
-        raise
 
-async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process the received image and apply the filter."""
-    try:
-        logger.info("Starting image processing")
+    def add_caption(self, img, text, font_size, outline_thickness):
+        # Create a drawing object
+        draw = ImageDraw.Draw(img)
         
-        # Get the file information
-        if not update.message.photo and update.message.document:
-            # If it's sent as a file, check the mime type
-            file = update.message.document
-            if not file.mime_type in ["image/jpeg", "image/png"]:
-                await update.message.reply_text(
-                    "Sorry, I can only process JPEG or PNG images. Please send a valid image file."
-                )
-                return
-            photo_file = await context.bot.get_file(file.file_id)
-        elif update.message.photo:
-            # If it's sent as a photo, Telegram automatically converts it to JPEG
-            photo = update.message.photo[-1]  # Get the largest photo size
-            logger.info(f"Photo size: {photo.width}x{photo.height}")
-            photo_file = await context.bot.get_file(photo.file_id)
-        else:
-            await update.message.reply_text(
-                "Please send me a JPEG or PNG image to apply the purple filter."
-            )
-            return
-        
-        logger.info("Getting file from Telegram")
-        
-        logger.info("Downloading image bytes")
-        # Download the image
-        image_bytes = await photo_file.download_as_bytearray()
-        logger.info(f"Downloaded {len(image_bytes)} bytes")
-        
-        logger.info("Opening image with PIL")
-        image = Image.open(io.BytesIO(image_bytes))
-        
-        # Verify image format
-        if image.format not in ['JPEG', 'PNG']:
-            await update.message.reply_text(
-                "Sorry, I can only process JPEG or PNG images. "
-                "Please send an image in one of these formats."
-            )
-            return
-            
-        logger.info(f"Original image size: {image.size}")
-        
-        # Resize if the image is too large
-        max_size = 1280
-        if max(image.size) > max_size:
-            logger.info("Resizing image")
-            ratio = max_size / max(image.size)
-            new_size = tuple(int(dim * ratio) for dim in image.size)
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
-            logger.info(f"New image size: {image.size}")
-        
-        logger.info("Applying purple filter")
-        # Apply filter with default values
-        processed_image = apply_purple_black_tone(image)
-        logger.info("Filter applied successfully")
-        
-        # Add watermark
-        logger.info("Adding watermark")
-        processed_image = add_watermark(processed_image)
-        
-        # Save the processed image to bytes
-        logger.info("Saving processed image")
-        output = io.BytesIO()
-        processed_image.save(output, format='JPEG')  # Always save as JPEG for consistency
-        output.seek(0)
-        logger.info("Image saved to bytes")
-        
-        # Create intensity adjustment buttons
-        logger.info("Creating keyboard markup")
-        keyboard = [
-            [
-                InlineKeyboardButton("↑ Purple", callback_data="purple_up"),
-                InlineKeyboardButton("↓ Purple", callback_data="purple_down")
-            ],
-            [
-                InlineKeyboardButton("↑ Black", callback_data="black_up"),
-                InlineKeyboardButton("↓ Black", callback_data="black_down")
-            ],
-            [
-                InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
-                InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Store original image and current settings in context
-        logger.info("Storing image in context")
-        context.user_data['original_image'] = image
-        context.user_data['settings'] = {
-            'purple': 1.0,
-            'black': 1.0,
-            'contrast': 1.0
-        }
-        
-        logger.info("Sending processed image")
-        # Send the processed image with adjustment buttons
-        await update.message.reply_photo(
-            photo=output,
-            reply_markup=reply_markup
-        )
-        logger.info("Image processing completed successfully")
-        
-    except Exception as e:
-        logger.error(f"Error in process_image: {str(e)}")
-        logger.exception("Full traceback:")
-        await update.message.reply_text(
-            "Sorry, there was an error processing your image. "
-            "Please make sure you're sending a valid JPEG or PNG image and try again."
-        )
-
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button presses for adjusting filter intensities."""
-    try:
-        logger.info("Button callback received")
-        query = update.callback_query
-        await query.answer()
-        
-        # Get current settings
-        logger.info("Getting current settings")
-        settings = context.user_data.get('settings', {
-            'purple': 1.0,
-            'black': 1.0,
-            'contrast': 1.0
-        })
-        
-        # Store old settings to check if they changed
-        old_settings = settings.copy()
-        
-        # Adjust settings based on button press
-        adjustment = 0.5
-        logger.info(f"Processing button: {query.data}")
-        if query.data == "purple_up":
-            if settings['purple'] < 4.0:  # Only adjust if not at max
-                settings['purple'] = min(4.0, settings['purple'] + adjustment)
-        elif query.data == "purple_down":
-            if settings['purple'] > 0.0:  # Only adjust if not at min
-                settings['purple'] = max(0.0, settings['purple'] - adjustment)
-        elif query.data == "black_up":
-            if settings['black'] < 4.0:
-                settings['black'] = min(4.0, settings['black'] + adjustment)
-        elif query.data == "black_down":
-            if settings['black'] > 0.0:
-                settings['black'] = max(0.0, settings['black'] - adjustment)
-        elif query.data == "contrast_up":
-            if settings['contrast'] < 3.0:
-                settings['contrast'] = min(3.0, settings['contrast'] + adjustment)
-        elif query.data == "contrast_down":
-            if settings['contrast'] > 0.0:
-                settings['contrast'] = max(0.0, settings['contrast'] - adjustment)
-        
-        # Check if settings actually changed
-        if settings == old_settings:
-            logger.info("Settings unchanged, skipping update")
-            await query.answer("Maximum/minimum value reached!")
-            return
-            
-        logger.info(f"New settings: {settings}")
-        # Update stored settings
-        context.user_data['settings'] = settings
-        
-        if 'original_image' not in context.user_data:
-            logger.error("Original image not found in context")
-            await query.message.reply_text("Sorry, I couldn't find the original image. Please send a new image.")
-            return
-            
-        logger.info("Processing image with new settings")
-        # Process image with new settings
+        # Try to use Arial, fall back to default if not available
         try:
-            processed_image = apply_purple_black_tone(
-                context.user_data['original_image'],
-                settings['purple'],
-                settings['black'],
-                settings['contrast']
-            )
-            
-            # Add watermark
-            processed_image = add_watermark(processed_image)
-            
-            # Save the processed image to bytes
-            logger.info("Saving processed image")
-            output = io.BytesIO()
-            processed_image.save(output, format='JPEG')
-            output.seek(0)
-            
-            # Update the image with the same buttons
-            keyboard = [
-                [
-                    InlineKeyboardButton("↑ Purple", callback_data="purple_up"),
-                    InlineKeyboardButton("↓ Purple", callback_data="purple_down")
-                ],
-                [
-                    InlineKeyboardButton("↑ Black", callback_data="black_up"),
-                    InlineKeyboardButton("↓ Black", callback_data="black_down")
-                ],
-                [
-                    InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
-                    InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            logger.info("Updating message with new image")
-            await query.message.edit_media(
-                media=InputMediaPhoto(output),
-                reply_markup=reply_markup
-            )
-            logger.info("Button callback completed successfully")
-            
-        except telegram.error.BadRequest as e:
-            if "Message is not modified" in str(e):
-                logger.info("Image unchanged, ignoring update")
-                await query.answer("No change in image!")
-            else:
-                raise
-            
-    except Exception as e:
-        logger.error(f"Error in button_callback: {str(e)}")
-        logger.exception("Full traceback:")
-        await query.message.reply_text(
-            "Sorry, there was an error adjusting the image. Please try sending a new image."
-        )
-
-def main():
-    """Start the bot."""
-    try:
-        logger.info("Starting bot initialization")
-        # Create the Application
-        application = Application.builder().token(TOKEN).build()
-
-        # Add handlers
-        logger.info("Adding handlers")
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, process_image))
-        application.add_handler(CallbackQueryHandler(button_callback))
-
-        # Start the Bot
-        logger.info("Bot is starting...")
-        application.run_polling()
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
         
-    except Exception as e:
-        logger.error(f"Critical error starting bot: {e}")
-        logger.exception("Full traceback:")
-        raise
+        # Get text size
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        # Calculate position (centered at bottom)
+        x = (img.width - text_width) // 2
+        y = img.height - text_height - 40  # Increased padding from bottom
+        
+        # Draw thicker outline
+        for offset_x in range(-outline_thickness, outline_thickness + 1):
+            for offset_y in range(-outline_thickness, outline_thickness + 1):
+                draw.text(
+                    (x + offset_x, y + offset_y),
+                    text,
+                    font=font,
+                    fill='black'
+                )
+        
+        # Draw main text in bright purple/pink
+        draw.text(
+            (x, y),
+            text,
+            font=font,
+            fill='#FF00FF'
+        )
+        
+        return img
 
-if __name__ == '__main__':
-    main()
+    def update_image(self, *args):
+        if self.original_image:
+            # Create a copy of the original image
+            working_image = self.original_image.copy()
+            
+            # Apply filter
+            processed_image = self.apply_purple_black_tone(
+                working_image,
+                self.purple_intensity_var.get(),
+                self.black_intensity_var.get(),
+                self.contrast_var.get()
+            )
+            
+            # Add caption
+            if self.caption_var.get().strip():
+                processed_image = self.add_caption(
+                    processed_image,
+                    self.caption_var.get(),
+                    self.font_size_var.get(),
+                    self.outline_var.get()
+                )
+            
+            # Convert to PhotoImage for display
+            self.photo_image = ImageTk.PhotoImage(processed_image)
+            
+            # Update canvas
+            self.canvas.delete("all")
+            self.canvas.create_image(
+                400, 300,
+                image=self.photo_image,
+                anchor=tk.CENTER
+            )
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = PurpleFilterApp(root)
+    root.mainloop()
