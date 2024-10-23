@@ -1,6 +1,6 @@
 import io
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
+from telegram.ext import ContextTypes
 import telegram
 from PIL import Image
 
@@ -8,9 +8,6 @@ from image_processor import apply_purple_black_tone, add_watermark
 from logger import setup_logger
 
 logger = setup_logger(__name__)
-
-# Define states for the conversation
-CAPTION_POSITION, CAPTION_TEXT = range(2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -235,16 +232,3 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             "Sorry, there was an error adjusting the image. Please try sending a new image."
         )
-
-# Create a conversation handler for the caption process
-caption_conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(button_callback, pattern='^add_caption$')],
-    states={
-        CAPTION_POSITION: [CallbackQueryHandler(caption_position_callback, pattern='^caption_(top|bottom)$')],
-        CAPTION_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, caption_text_input)]
-    },
-    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)]
-)
-
-# Don't forget to add this handler to your application in the main function
-
