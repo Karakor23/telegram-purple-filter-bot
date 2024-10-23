@@ -5,6 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from config import load_config
 from handlers import start, process_image, button_callback
 from logger import setup_logger
+from caption_handler import setup_caption_handler
 
 logger = setup_logger(__name__)
 
