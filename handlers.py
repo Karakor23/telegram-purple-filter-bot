@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, Mess
 import telegram
 from PIL import Image
 
-from image_processor import apply_purple_black_tone, add_watermark, add_caption
+from image_processor import apply_purple_black_tone, add_watermark
 from logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -211,8 +211,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [
                     InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
                     InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
-                ],
-                [InlineKeyboardButton("Add Caption", callback_data="add_caption")]
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -236,53 +235,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             "Sorry, there was an error adjusting the image. Please try sending a new image."
         )
-
-async def caption_position_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    context.user_data['caption_position'] = query.data.split('_')[1]
-    await query.message.reply_text("Please enter your caption text:")
-    return CAPTION_TEXT
-
-async def caption_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    caption_text = update.message.text
-    caption_position = context.user_data['caption_position']
-
-    # Process the image with the new caption
-    processed_image = apply_purple_black_tone(
-        context.user_data['original_image'],
-        context.user_data['settings']['purple'],
-        context.user_data['settings']['black'],
-        context.user_data['settings']['contrast']
-    )
-    processed_image = add_watermark(processed_image)
-    processed_image = add_caption(processed_image, caption_text, caption_position)
-
-    # Save and send the updated image
-    output = io.BytesIO()
-    processed_image.save(output, format='JPEG')
-    output.seek(0)
-
-    keyboard = [
-        [
-            InlineKeyboardButton("↑ Purple", callback_data="purple_up"),
-            InlineKeyboardButton("↓ Purple", callback_data="purple_down")
-        ],
-        [
-            InlineKeyboardButton("↑ Black", callback_data="black_up"),
-            InlineKeyboardButton("↓ Black", callback_data="black_down")
-        ],
-        [
-            InlineKeyboardButton("↑ Contrast", callback_data="contrast_up"),
-            InlineKeyboardButton("↓ Contrast", callback_data="contrast_down")
-        ],
-        [InlineKeyboardButton("Add Caption", callback_data="add_caption")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_photo(photo=output, reply_markup=reply_markup)
-    return ConversationHandler.END
 
 # Create a conversation handler for the caption process
 caption_conv_handler = ConversationHandler(
