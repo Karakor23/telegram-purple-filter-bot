@@ -1,5 +1,5 @@
 import logging
-import sys
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 from config import load_config
@@ -10,8 +10,12 @@ logger = setup_logger(__name__)
 
 async def caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Caption command received")
-    await update.message.reply_text("OK from caption command")
-    logger.info("Caption command response sent")
+    try:
+        await update.message.reply_text("OK from caption command")
+        logger.info("Caption command response sent")
+    except Exception as e:
+        logger.error(f"Error in caption command: {str(e)}")
+        logger.exception("Full traceback:")
 
 def main():
     """Start the bot."""
