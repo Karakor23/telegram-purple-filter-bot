@@ -4,6 +4,20 @@ from logger import setup_logger
 
 logger = setup_logger(__name__)
 
+def get_font_size(image_width, text, font_path, max_width_ratio=0.9):
+    """Find the largest font size that fits the text within the image width."""
+    font_size = 1
+    font = ImageFont.truetype(font_path, font_size)
+    text_width = font.getsize(text)[0]
+    max_width = int(image_width * max_width_ratio)
+
+    while text_width < max_width:
+        font_size += 1
+        font = ImageFont.truetype(font_path, font_size)
+        text_width = font.getsize(text)[0]
+
+    return font_size - 1
+
 def add_caption(image, caption_text, position='bottom'):
     """Add a caption to the image."""
     try:
@@ -14,8 +28,9 @@ def add_caption(image, caption_text, position='bottom'):
         if not os.path.exists(font_path):
             logger.warning("Impact font not found. Using default font.")
             font = ImageFont.load_default()
+            font_size = 40  # Default size
         else:
-            font_size = int(image.width * 0.1)  # Adjust font size based on image width
+            font_size = get_font_size(image.width, caption_text, font_path)
             font = ImageFont.truetype(font_path, font_size)
 
         # Calculate text size
@@ -31,7 +46,8 @@ def add_caption(image, caption_text, position='bottom'):
 
         # Draw text outline
         outline_color = 'black'
-        for adj in range(-3, 4):
+        outline_width = max(1, font_size // 15)  # Adjust outline width based on font size
+        for adj in range(-outline_width, outline_width + 1):
             draw.text((x+adj, y), caption_text, font=font, fill=outline_color)
             draw.text((x, y+adj), caption_text, font=font, fill=outline_color)
 
@@ -41,4 +57,5 @@ def add_caption(image, caption_text, position='bottom'):
         return image
     except Exception as e:
         logger.error(f"Error adding caption: {str(e)}")
+        logger.exception("Full traceback:")
         return image  # Return original image if caption fails
