@@ -6,8 +6,8 @@ logger = setup_logger(__name__)
 
 async def caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Respond to the /caption command."""
+    logger.info("Caption command function called")
     try:
-        logger.info("Caption command received")
         await update.message.reply_text("OK")
         logger.info("Caption command handled successfully")
     except Exception as e:
