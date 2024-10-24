@@ -37,12 +37,11 @@ def add_caption(image, caption_text, position='bottom'):
         text_width, text_height = draw.textsize(caption_text, font=font)
 
         # Calculate position
-        padding = 10
         x = (image.width - text_width) // 2
         if position == 'top':
-            y = padding
+            y = int(image.height * 0.1)  # 10% from the top
         else:  # bottom
-            y = image.height - text_height - padding
+            y = int(image.height * 0.9) - text_height  # 10% from the bottom
 
         # Draw text outline
         outline_color = 'black'
